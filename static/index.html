@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>🏍️ EPIC RIDERS CLUB 2026</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/static/styles.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="title">🏍️ EPIC RIDERS CLUB 2026</div>
+  <div class="topbar-right">
+    <button id="btn-build" class="primary">📥 생성</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-pane="pane-cards">📋 카드</button>
+  <button class="tab" data-pane="pane-map">🗺️ 지도</button>
+  <button class="tab" data-pane="pane-params">⚙️ 파라미터</button>
+</nav>
+
+<main class="layout">
+  <!-- LEFT: Cards -->
+  <section class="pane pane-cards active" id="pane-cards">
+    <div class="cards-header">
+      <h2>📋 카드 목록 (<span id="card-total">237</span>)</h2>
+      <div class="search-row">
+        <input type="search" id="card-search" placeholder="🔍 카드 이름 / 번호 검색" autocomplete="off">
+      </div>
+      <div class="card-summary">
+        <span>🃏 보유 <span id="owned-count">0</span> / <span id="card-total-2">237</span></span>
+        <button id="btn-reset-owned" class="ghost">🔄 초기화</button>
+      </div>
+    </div>
+    <div class="card-list" id="card-list"><div class="hint">로딩 중…</div></div>
+  </section>
+
+  <!-- CENTER: Map -->
+  <section class="pane pane-map" id="pane-map">
+    <h2>🗺️ 미리보기</h2>
+    <div class="map-info">
+      <div>⭐ 시작: <span id="lbl-start">—</span></div>
+      <div>🏁 도착: <span id="lbl-end">—</span></div>
+      <small class="hint">모드: <select id="se-target-mode">
+        <option value="loop">🔁 loop</option>
+        <option value="traverse" selected>↔️ traverse</option>
+        <option value="personal">👤 personal</option>
+      </select> · 카드 마커 클릭으로 시작/도착 지정</small>
+    </div>
+    <div id="map"></div>
+  </section>
+
+  <!-- RIGHT: Params -->
+  <section class="pane pane-params" id="pane-params">
+    <h2>⚙️ 파라미터</h2>
+    <div class="param-group">
+      <h3><span>라우트 모드</span><span class="help" data-tip="🔁 loop: 220장 모두 방문 후 시작점 복귀 (closed TSP)&#10;↔️ traverse: 220장 모두 방문, 도착점 자유 (open TSP)&#10;👤 personal: 보유 카드만 방문 (open TSP)">ℹ️</span></h3>
+      <label><input type="checkbox" data-mode="loop" checked> 🔁 loop</label>
+      <label><input type="checkbox" data-mode="traverse" checked> ↔️ traverse</label>
+      <label><input type="checkbox" data-mode="personal" checked> 👤 personal</label>
+    </div>
+
+    <div class="param-group">
+      <h3><span>🛣️ TSP 시간 (초)</span><span class="help" data-tip="OR-tools 메타휴리스틱 검색 시간. 길수록 더 짧은 경로를 찾을 확률이 높음. 모드별 메타휴리스틱 3개 각각 이 시간만큼 돌고 최단값 채택.">ℹ️</span></h3>
+      <label class="kv">loop <input type="number" id="p-tsp-loop" value="180" min="10" max="3600"></label>
+      <label class="kv">traverse <input type="number" id="p-tsp-traverse" value="180" min="10" max="3600"></label>
+      <label class="kv">personal <input type="number" id="p-tsp-personal" value="120" min="10" max="3600"></label>
+    </div>
+
+    <div class="param-group">
+      <h3><span>✅ 검증</span><span class="help" data-tip="모터사이클 진입 금지 도로(고속도로 등) 위반 검사.&#10;intersect: 라우트 buffer와 위반 도로 LineString 기하 교차 측정 (정확).&#10;point: 1km 샘플 점 주변 30m 위반 도로 탐색 (빠르지만 짧은 위반 놓침).&#10;끄기: 검증 생략.&#10;&#10;buffer (m): intersect 모드 라우트 양옆 허용 거리. 작을수록 엄격. 기본 3m는 일반 도로 폭 수준.">ℹ️</span></h3>
+      <label><input type="radio" name="verify-mode" value="intersect" checked> intersect</label>
+      <label><input type="radio" name="verify-mode" value="point"> point</label>
+      <label><input type="radio" name="verify-mode" value="off"> 끄기</label>
+      <label class="kv">buffer (m) <input type="number" id="p-verify-buffer" value="3" min="1" max="50" step="0.5"></label>
+    </div>
+
+    <div class="param-group">
+      <h3 class="collapser" id="hd-advanced"><span>고급 모드</span><span class="help" data-tip="bearing 임계 (°): 라우트와 위반 도로 각도 차이가 이 값을 초과하면 합류/교차/오버패스로 판단해 false-positive 제외. 기본 30° 권장.&#10;&#10;grade-separation 필터: bridge=yes / tunnel=yes / layer≠0 태그가 있는 입체 분리 도로에서 발생하는 false-positive 제외.&#10;&#10;point 샘플 간격 (m): point 모드에서 라우트 polyline 위 샘플 점 간격.&#10;&#10;point 위반 반경 (m): point 모드에서 각 샘플 점 주변 위반 도로 탐색 반경.&#10;&#10;메타휴리스틱: OR-tools 로컬 서치 알고리즘. 셋 다 PATH_CHEAPEST_ARC 시드에서 시작해 'TSP 시간'만큼 돌고, 거리 최단값 채택.&#10;&#10;캐시:&#10;- 그래프 강제 재빌드: Overpass API에서 강원 도로 재다운로드 (~10분)&#10;- 매트릭스 강제 재빌드: 220 카드 쌍 거리 Dijkstra 재계산 (~90초)&#10;- EPIC 좌표가 바뀌면 매트릭스는 자동 무효화">ℹ️</span></h3>
+      <div class="advanced hidden" id="advanced-pane">
+        <label class="kv">bearing 임계 (°) <input type="number" id="p-bearing-thr" value="30" min="0" max="90"></label>
+        <label><input type="checkbox" id="p-grade-sep" checked> grade-separation 필터</label>
+        <label class="kv">point 샘플 간격 (m) <input type="number" id="p-sample-interval" value="1000" min="100" max="5000"></label>
+        <label class="kv">point 위반 반경 (m) <input type="number" id="p-violation-radius" value="30" min="5" max="200"></label>
+        <h4>메타휴리스틱</h4>
+        <label><input type="checkbox" data-meta="GUIDED_LOCAL_SEARCH" checked> GUIDED_LOCAL_SEARCH</label>
+        <label><input type="checkbox" data-meta="SIMULATED_ANNEALING" checked> SIMULATED_ANNEALING</label>
+        <label><input type="checkbox" data-meta="TABU_SEARCH" checked> TABU_SEARCH</label>
+        <h4>캐시</h4>
+        <label><input type="checkbox" id="p-force-graph"> 그래프 강제 재빌드</label>
+        <label><input type="checkbox" id="p-force-matrix"> 매트릭스 강제 재빌드</label>
+      </div>
+    </div>
+
+    <div class="param-group">
+      <h3><span>🔧 도구</span><span class="help" data-tip="🔄 그래프 재빌드: Overpass 캐시 + 매트릭스 + Dijkstra 결과 모두 삭제. 다음 생성 시 강원 도로 데이터를 Overpass에서 재수집 (~10분). OSM 도로 데이터가 갱신됐거나 그래프 빌드 옵션을 바꿨을 때만 사용.">ℹ️</span></h3>
+      <button id="btn-rebuild-graph" class="ghost">🔄 그래프 재빌드 (캐시 삭제)</button>
+    </div>
+  </section>
+</main>
+
+<footer class="statusbar" id="statusbar">
+  <span id="status-cache">캐시: …</span>
+  <span id="status-progress">대기</span>
+  <span id="status-result"></span>
+</footer>
+
+<dialog id="dlg-build">
+  <h3>📥 생성 진행 중…</h3>
+  <div class="progress-line" id="progress-line"></div>
+  <pre class="event-log" id="event-log"></pre>
+  <div class="dlg-actions">
+    <button id="btn-dlg-close" class="ghost" disabled>닫기</button>
+    <a id="dl-link" class="primary hidden" download>📥 다운로드</a>
+  </div>
+</dialog>
+
+</body>
+</html>

@@ -1,0 +1,29 @@
+# Build caches (very large)
+mc_graph.json
+mc_dijkstra.npz
+matrix_motorcycle.json
+routes_motorcycle.json
+verify_routes_motorcycle_*.json
+overpass_cache/
+
+# Outputs (regenerated per run)
+out/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Octo review runtime
+.claude-octopus/
+
+# Internal-only docs (kept local)
+docs/
