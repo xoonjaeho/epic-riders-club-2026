@@ -4,9 +4,15 @@ BMW Motorrad Korea EPIC RIDERS CLUB 2026 강원도 220 + EPIC 17 = 237장 카드
 
 라우트 세 가지를 모터사이클 합법 도로(고속도로 제외) 위에서 계산해 HTML 한 파일로 출력한다.
 
-[![preview](assets/preview.png)](https://xoonjaeho.github.io/epic-riders-club-2026/)
+**라이브 데모** — 생성된 single-file HTML 지도
 
-🗺️ **[라이브 데모 ↗](https://xoonjaeho.github.io/epic-riders-club-2026/)** — 마커 클릭 시 카드 정보 / 네이버지도 · 카카오맵 길찾기 링크. 보유·방문 토글은 브라우저 LocalStorage 에 저장.
+[![map preview](assets/preview.png)](https://xoonjaeho.github.io/epic-riders-club-2026/)
+
+🗺️ **[데모 열기 ↗](https://xoonjaeho.github.io/epic-riders-club-2026/)** — 마커 클릭 시 카드 정보 / 네이버지도 · 카카오맵 길찾기 링크 (iOS · Android 에선 앱 직접 연결). 보유·방문 토글은 브라우저 LocalStorage 에 저장.
+
+**빌더 UI** — 로컬 FastAPI (port 8804)
+
+![builder UI](assets/builder.png)
 
 | 모드 | 설명 | 색상 |
 |------|------|------|
