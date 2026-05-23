@@ -191,7 +191,12 @@ function makePopup(idx){
   const s = SPOTS[idx];
   const isVisited = visited.has(s.card);
   const isOwned = owned.has(s.card);
-  const naverUrl = 'https://map.naver.com/index.nhn?menu=route&pathType=1&etext='+encodeURIComponent(s.addr||'')+'&elat='+s.lat+'&elng='+s.lng;
+  // Naver: desktop fallback uses /p/search/{address} — Naver has no
+  // documented web URL that drops a pin at given lat/lng directly, so we
+  // search by full address (more precise than searching by name).
+  // Mobile clicks are intercepted by the delegated handler below and
+  // rewritten to `nmap://place?lat=&lng=&name=` for exact app-side coords.
+  const naverWebUrl = 'https://map.naver.com/p/search/' + encodeURIComponent(s.addr || s.name || '');
   const kakaoUrl = 'https://map.kakao.com/link/to/'+encodeURIComponent(s.addr||'')+','+s.lat+','+s.lng;
   const cardUrl = 'https://epic-riders.cnr-korea.com/epicrideclub/find/address/';
   return el('div', {class:'popup-card'}, [
@@ -200,7 +205,15 @@ function makePopup(idx){
     el('div', {class:'coords'}, s.lat.toFixed(6) + ', ' + s.lng.toFixed(6)),
     el('div', {class:'links'}, [
       el('a', {href: cardUrl, target: '_blank'}, '카드'),
-      el('a', {class:'naver', href: naverUrl, target: '_blank'}, '네이버지도'),
+      el('a', {
+        class: 'naver',
+        href: naverWebUrl,
+        target: '_blank',
+        'data-act': 'naver-open',
+        'data-lat': String(s.lat),
+        'data-lng': String(s.lng),
+        'data-name': s.name || '',
+      }, '네이버지도'),
       el('a', {class:'kakao', href: kakaoUrl, target: '_blank'}, '카카오맵'),
     ]),
     el('div', {class:'actions'}, [
@@ -309,9 +322,23 @@ function applyRoute(key){
 document.addEventListener('click', e => {
   const btn = e.target.closest('[data-act]');
   if (!btn) return;
-  const card = parseInt(btn.dataset.card, 10);
-  if (btn.dataset.act === 'own') window.toggleOwned(card);
-  else if (btn.dataset.act === 'visit') window.toggleVisited(card);
+  const act = btn.dataset.act;
+  if (act === 'own' || act === 'visit'){
+    const card = parseInt(btn.dataset.card, 10);
+    if (act === 'own') window.toggleOwned(card);
+    else window.toggleVisited(card);
+  } else if (act === 'naver-open'){
+    // iOS / Android: intercept and route through nmap:// custom scheme
+    // for app-side precise coords. Desktop falls through to the default
+    // <a href> (modern web URL) so map.naver.com opens in a new tab.
+    if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)){
+      e.preventDefault();
+      const lat = btn.dataset.lat;
+      const lng = btn.dataset.lng;
+      const name = encodeURIComponent(btn.dataset.name || '');
+      location.href = 'nmap://place?lat=' + lat + '&lng=' + lng + '&name=' + name + '&appname=xoonjaeho.github.io';
+    }
+  }
 });
 
 document.getElementById('route-toggle').addEventListener('click', e => {
