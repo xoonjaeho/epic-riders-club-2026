@@ -82,8 +82,16 @@ HTML = r'''<!DOCTYPE html>
  .popup-card .actions button.own.active{background:#34495e}
  .popup-card .actions button.visit{background:#27ae60}
  .popup-card .actions button.visit.active{background:#196f3d}
+ .popup-card .legs{margin:6px 0;font-size:13px;color:#333;line-height:1.5}
+ .popup-card .legs .leg-row{display:flex;justify-content:space-between;gap:8px}
+ .popup-card .legs .leg-lbl{color:#666}
+ .popup-card .legs .leg-val{font-weight:600;font-variant-numeric:tabular-nums}
  .v-popup{font-size:13px;line-height:1.5;min-width:140px}
  .v-popup b{color:#e91e63}
+ .leg-chip{background:#fff;border:1px solid #888;border-radius:10px;
+           padding:1px 6px;font-size:10px;font-weight:600;color:#333;
+           white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.25);
+           pointer-events:none;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -115,6 +123,10 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, 
 
 let polyLayer = null;
 let vLayer = null;
+let chipLayer = null;
+// Tuned to 12: at zoom 11 (~76m/px @ lat 38°) 220-leg loops have midpoints
+// that overlap in mountainous regions (설악·태백). 12 (~38m/px) clears those.
+const CHIP_MIN_ZOOM = 12;
 const markerByIdx = new Map();
 
 const visited = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY_VISITED) || '[]'));
@@ -139,8 +151,36 @@ function decodePolyline(str){
 
 function fmtKm(m){ return (m/1000).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' km'; }
 function fmtTime(s){ const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'시간 '+m+'분'; }
+function fmtLegTime(s){
+  // Short leg duration: "0분", "12분", "1시간 5분". <30s rounds to 0분 (no leg / unreachable).
+  if (!s || s < 30) return '0분';
+  const m = Math.round(s/60);
+  if (m < 60) return m + '분';
+  const h = Math.floor(m/60), rem = m % 60;
+  return rem === 0 ? (h + '시간') : (h + '시간 ' + rem + '분');
+}
 function pad3(n){ return String(n).padStart(3, '0'); }
 function cardLabel(c){ return c >= 221 ? ('EPIC ' + pad3(c - 220)) : ('#' + pad3(c)); }
+
+function legsAroundCard(idx){
+  // Returns {prev, next} legs adjacent to this card on currentRoute.
+  // - loop: closing leg is "prev" for the start card; outgoing is "next".
+  // - traverse/personal: start has prev=null; end has next=null.
+  // Assumes each idx appears at most once in order, except the loop closing
+  // duplicate (order[0] == order[N-1]). TSP guarantees this today; relax with
+  // a lastPos branch if routes ever revisit cards.
+  const r = ROUTES[currentRoute];
+  if (!r || !r.legs || !r.legs.length) return {prev: null, next: null};
+  const order = r.order;
+  const isLoop = order.length >= 2 && order[0] === order[order.length-1];
+  const firstPos = order.indexOf(idx);
+  if (firstPos < 0) return {prev: null, next: null};
+  let prev = null, next = null;
+  if (firstPos > 0) prev = r.legs[firstPos - 1];
+  else if (isLoop) prev = r.legs[r.legs.length - 1];
+  if (firstPos < order.length - 1) next = r.legs[firstPos];
+  return {prev, next};
+}
 
 // DOM builder helper — same contract as the live builder UI's el():
 // every text value goes through textContent, every attribute via setAttribute.
@@ -199,10 +239,23 @@ function makePopup(idx){
   const naverWebUrl = 'https://map.naver.com/p/search/' + encodeURIComponent(s.addr || s.name || '');
   const kakaoUrl = 'https://map.kakao.com/link/to/'+encodeURIComponent(s.addr||'')+','+s.lat+','+s.lng;
   const cardUrl = 'https://epic-riders.cnr-korea.com/epicrideclub/find/address/';
+  const {prev, next} = legsAroundCard(idx);
+  // Unreachable legs (backend marks mid_lat=null) get a distinct "도달불가"
+  // label so they don't look like a near-zero duration. Reachable legs use
+  // fmtLegTime — including short ones that round down to "0분".
+  const legRow = leg => el('div', {class:'leg-row'}, [
+    el('span', {class:'leg-lbl'}, '⏱️ ' + cardLabel(SPOTS[leg.from_idx].card)
+                                  + ' → ' + cardLabel(SPOTS[leg.to_idx].card)),
+    el('span', {class:'leg-val'}, leg.mid_lat == null ? '도달불가' : fmtLegTime(leg.duration_s)),
+  ]);
+  const legRows = [];
+  if (prev) legRows.push(legRow(prev));
+  if (next) legRows.push(legRow(next));
   return el('div', {class:'popup-card'}, [
     el('h3', null, cardLabel(s.card) + ' ' + (s.name || '')),
     el('div', {class:'addr'}, s.addr || ''),
     el('div', {class:'coords'}, s.lat.toFixed(6) + ', ' + s.lng.toFixed(6)),
+    legRows.length ? el('div', {class:'legs'}, legRows) : null,
     el('div', {class:'links'}, [
       el('a', {href: cardUrl, target: '_blank'}, '카드'),
       el('a', {
@@ -263,15 +316,45 @@ window.resetVisited = function(){
   visited.clear(); saveVisited(); refreshAllMarkers();
 };
 
+function buildChipLayer(r){
+  // One non-interactive divIcon marker per leg, anchored at the leg midpoint.
+  // Legs with no midpoint (unreachable) or <30s duration are skipped.
+  if (!r || !r.legs) return null;
+  const group = L.featureGroup();
+  r.legs.forEach(leg => {
+    if (leg.mid_lat == null || leg.mid_lng == null) return;
+    if (!leg.duration_s || leg.duration_s < 30) return;
+    const chip = L.divIcon({
+      className: '',
+      html: el('div', {class:'leg-chip'}, fmtLegTime(leg.duration_s)),
+      iconSize: null,
+    });
+    L.marker([leg.mid_lat, leg.mid_lng], {icon: chip, interactive: false, keyboard: false})
+      .addTo(group);
+  });
+  return group;
+}
+
+function syncChipVisibility(){
+  if (!chipLayer) return;
+  const want = map.getZoom() >= CHIP_MIN_ZOOM;
+  const has = map.hasLayer(chipLayer);
+  if (want && !has) chipLayer.addTo(map);
+  else if (!want && has) map.removeLayer(chipLayer);
+}
+
 function applyRoute(key){
   if (!ROUTES[key]) return;
   currentRoute = key;
   const r = ROUTES[key];
   if (polyLayer) { map.removeLayer(polyLayer); polyLayer = null; }
   if (vLayer)    { map.removeLayer(vLayer);    vLayer = null; }
+  if (chipLayer) { map.removeLayer(chipLayer); chipLayer = null; }
   const pts = decodePolyline(r.polyline);
   const color = ROUTE_COLOR[key] || '#666';
   polyLayer = L.polyline(pts, {color, weight:5, opacity:.75}).addTo(map);
+  chipLayer = buildChipLayer(r);
+  syncChipVisibility();
 
   const vs = VIOLATIONS[key] || [];
   if (vs.length){
@@ -353,6 +436,7 @@ function repositionToggle(){
 }
 new ResizeObserver(repositionToggle).observe(document.getElementById('stats'));
 window.addEventListener('load', repositionToggle);
+map.on('zoomend', syncChipVisibility);
 
 window.addEventListener('storage', e => {
   if (e.key === STORAGE_KEY_VISITED) {

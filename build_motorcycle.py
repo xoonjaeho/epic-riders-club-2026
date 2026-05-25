@@ -620,7 +620,7 @@ def stage_poly(routes, node_coords, progress_cb=None):
     return routes
 
 
-def stage_duration(routes, edges, progress_cb=None):
+def stage_duration(routes, edges, node_coords, progress_cb=None):
     print('\n=== stage 6: duration ===')
     arrs = np.load(DIJKSTRA_NPZ)
     pred = arrs['pred']
@@ -631,8 +631,15 @@ def stage_duration(routes, edges, progress_cb=None):
         u, v, length, speed = edge[0], edge[1], edge[2], edge[3]
         edge_info[(u, v)] = (length, speed)
 
-    def path_duration_s(pred_row, src, dst):
-        total = 0.0
+    def path_leg_details(pred_row, src, dst):
+        """Walk predecessor chain dst->src, collect path nodes + per-edge length.
+
+        Returns (distance_m, duration_s, mid_lat, mid_lng) or None when
+        unreachable. Midpoint is the path node nearest to cumulative-length/2.
+        """
+        nodes_rev = [int(dst)]
+        seg_lengths_rev = []
+        total_dur = 0.0
         cur = int(dst)
         while cur != src and cur >= 0:
             nxt = int(pred_row[cur])
@@ -640,20 +647,55 @@ def stage_duration(routes, edges, progress_cb=None):
                 return None
             if (nxt, cur) in edge_info:
                 length, speed = edge_info[(nxt, cur)]
-                total += length / (speed * 1000.0 / 3600.0)
+                seg_lengths_rev.append(length)
+                total_dur += length / (speed * 1000.0 / 3600.0)
+            else:
+                seg_lengths_rev.append(0.0)
+            nodes_rev.append(nxt)
             cur = nxt
-        return total if cur == src else None
+        if cur != src:
+            return None
+        nodes = list(reversed(nodes_rev))
+        seg_lengths = list(reversed(seg_lengths_rev))
+        total_len = sum(seg_lengths)
+        if total_len <= 0 or len(nodes) < 2:
+            mid_idx = len(nodes) // 2
+        else:
+            half = total_len / 2.0
+            acc = 0.0
+            mid_idx = 0
+            for i, L in enumerate(seg_lengths):
+                if acc + L >= half:
+                    mid_idx = i if (half - acc) < ((acc + L) - half) else i + 1
+                    break
+                acc += L
+            else:
+                # Defensive — unreachable in practice: sum(seg_lengths) == total_len,
+                # so acc + L >= half must trigger by the final iteration.
+                mid_idx = len(nodes) - 1
+        lat, lng = node_coords[nodes[mid_idx]]
+        return total_len, total_dur, float(lat), float(lng)
 
     for key, r in routes.items():
         order = r['order']
+        legs = []
         total_s = 0.0
         for i in range(len(order)-1):
             a, b = order[i], order[i+1]
-            d = path_duration_s(pred[a], int(src_nodes[a]), int(src_nodes[b]))
-            if d is None:
+            result = path_leg_details(pred[a], int(src_nodes[a]), int(src_nodes[b]))
+            if result is None:
                 print(f'  [{key}] leg {a}->{b}: unreachable')
+                legs.append({'from_idx': a, 'to_idx': b, 'distance_m': 0.0,
+                             'duration_s': 0.0, 'mid_lat': None, 'mid_lng': None})
                 continue
-            total_s += d
+            d_m, d_s, mid_lat, mid_lng = result
+            total_s += d_s
+            legs.append({'from_idx': a, 'to_idx': b,
+                         'distance_m': round(d_m, 1),
+                         'duration_s': round(d_s, 1),
+                         'mid_lat': round(mid_lat, 7),
+                         'mid_lng': round(mid_lng, 7)})
+        r['legs'] = legs
         r['duration_s'] = total_s
         if total_s > 0:
             avg = (r['distance_m'] / 1000.0) / (total_s / 3600.0)
@@ -684,7 +726,7 @@ def build_routes(params: Optional[BuildParams] = None, progress_cb=None) -> dict
                                progress_cb=progress_cb, force=params.force_rebuild_matrix)
     routes = stage_tsp(spots, matrix_data, params, progress_cb=progress_cb)
     routes = stage_poly(routes, node_coords, progress_cb=progress_cb)
-    routes = stage_duration(routes, edges, progress_cb=progress_cb)
+    routes = stage_duration(routes, edges, node_coords, progress_cb=progress_cb)
     # Attach matrix-level diagnostics under a reserved key. Caller must pop
     # before passing routes to build_html (which iterates per-route entries).
     routes['_diagnostics'] = {

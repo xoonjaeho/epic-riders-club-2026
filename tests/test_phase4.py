@@ -81,7 +81,7 @@ def test_build_routes_attaches_unreachable_diagnostics(monkeypatch, tmp_path):
     monkeypatch.setattr(build_motorcycle, 'stage_tsp',
                         lambda spots, m, p, progress_cb=None: {'loop': {'order': [0, 1, 0], 'distance_m': 200}})
     monkeypatch.setattr(build_motorcycle, 'stage_poly', lambda r, nc, progress_cb=None: r)
-    monkeypatch.setattr(build_motorcycle, 'stage_duration', lambda r, e, progress_cb=None: r)
+    monkeypatch.setattr(build_motorcycle, 'stage_duration', lambda r, e, nc, progress_cb=None: r)
     monkeypatch.setattr(build_motorcycle, 'get_spots',
                         lambda extras=(): [{'card': 1, 'lat': 0.0, 'lng': 0.0},
                                            {'card': 2, 'lat': 1.0, 'lng': 1.0}])
@@ -142,3 +142,81 @@ def test_spots_cache_key_changes_on_coord_edit():
     spots[0]['lat'] = 37.01
     k2 = build_motorcycle._spots_cache_key(spots)
     assert k1 != k2
+
+
+# ---------- stage_duration: per-leg invariants ----------
+# Two regressions covered:
+#   1. legs count == len(order) - 1 (loop's closing leg included).
+#   2. Unreachable leg (pred=-9999) yields a graceful 0-filled entry with
+#      mid_lat/mid_lng=None — frontend keys off mid_lat to render '도달불가'.
+
+def _make_duration_fixture(tmp_path, monkeypatch, pred_array, src_nodes_array):
+    """Wire a fake DIJKSTRA_NPZ at tmp_path with the given pred / snapped arrays."""
+    import numpy as np
+    dijkstra_npz = tmp_path / 'd.npz'
+    np.savez(dijkstra_npz, pred=pred_array, snapped=src_nodes_array)
+    monkeypatch.setattr(build_motorcycle, 'DIJKSTRA_NPZ', dijkstra_npz)
+
+
+# Linear 3-node graph 0-1-2 (bidirectional). All edges 1000m @ 60 km/h
+# → 60s / leg. No direct 0-2 edge: 0↔2 must traverse via node 1.
+_LINEAR_NODE_COORDS = [[37.0, 127.0], [37.1, 127.1], [37.2, 127.2]]
+_LINEAR_EDGES = [
+    [0, 1, 1000.0, 60.0], [1, 0, 1000.0, 60.0],
+    [1, 2, 1000.0, 60.0], [2, 1, 1000.0, 60.0],
+]
+
+
+def test_stage_duration_legs_length_matches_order(monkeypatch, tmp_path):
+    import numpy as np
+    pred = np.array([
+        [-9999, 0,     1    ],
+        [1,     -9999, 1    ],
+        [1,     2,     -9999],
+    ], dtype=np.int32)
+    src_nodes = np.array([0, 1, 2], dtype=np.int64)
+    _make_duration_fixture(tmp_path, monkeypatch, pred, src_nodes)
+
+    routes = {
+        'loop':     {'order': [0, 1, 2, 0], 'distance_m': 4000},
+        'traverse': {'order': [0, 1, 2],    'distance_m': 2000},
+    }
+    out = build_motorcycle.stage_duration(routes, _LINEAR_EDGES, _LINEAR_NODE_COORDS)
+
+    assert len(out['loop']['legs']) == 3       # closing leg counted
+    assert len(out['traverse']['legs']) == 2   # open path
+    for r in (out['loop'], out['traverse']):
+        assert len(r['legs']) == len(r['order']) - 1
+        for leg in r['legs']:
+            assert leg['mid_lat'] is not None
+            assert leg['distance_m'] > 0
+            assert leg['duration_s'] > 0
+
+
+def test_stage_duration_unreachable_leg_graceful(monkeypatch, tmp_path):
+    import numpy as np
+    # pred[2][0] = -9999 → node 0 is unreachable starting from node 2.
+    pred = np.array([
+        [-9999, 0,     1    ],
+        [1,     -9999, 1    ],
+        [-9999, 2,     -9999],
+    ], dtype=np.int32)
+    src_nodes = np.array([0, 1, 2], dtype=np.int64)
+    _make_duration_fixture(tmp_path, monkeypatch, pred, src_nodes)
+
+    routes = {'loop': {'order': [0, 1, 2, 0], 'distance_m': 4000}}
+    out = build_motorcycle.stage_duration(routes, _LINEAR_EDGES, _LINEAR_NODE_COORDS)
+    legs = out['loop']['legs']
+
+    assert len(legs) == 3
+    closing = legs[2]
+    assert (closing['from_idx'], closing['to_idx']) == (2, 0)
+    assert closing['mid_lat'] is None
+    assert closing['mid_lng'] is None
+    assert closing['distance_m'] == 0.0
+    assert closing['duration_s'] == 0.0
+    # Reachable legs unaffected.
+    assert legs[0]['mid_lat'] is not None
+    assert legs[1]['mid_lat'] is not None
+    # Route duration_s only sums reachable legs (2 × 60s).
+    assert out['loop']['duration_s'] == pytest.approx(120.0, rel=0.01)
