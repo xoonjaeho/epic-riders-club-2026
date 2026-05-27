@@ -71,10 +71,14 @@ CLI mode is kept for regression testing and debugging.
 
 🛣️ road distance · ⏱️ duration · 🃏 owned · 📍 visited · 🔄 reset · 🔁 loop · ↔️ traverse · 👤 personal · ⭐ start · 🏁 end
 
+⭐/🏁 are used in the builder UI for endpoint selection. **Generated HTML** drops start/end emoji from map markers and the card list — start/end are surfaced via color cues only (yellow/dark marker background + left border stripe on list rows).
+
 ## Conventions
 
 - Frontend: no `innerHTML`. Use DOM API (`createElement` / `textContent`) only — XSS prevention and passes the security hook.
 - Marker labels and tooltips are built through the `el()` helper, inserting only trusted primitives (numbers, fixed class names) as text nodes.
+- Generated HTML right-side panel stack (auto-repositioned by `repositionPanels()`): `#stats` → `#route-toggle` → `#card-list-box`. Card list is collapsible (header click), starts collapsed on mobile (≤600px), shows route order with cards sortable by `[번호 | 순서] × [↑ | ↓]` (sort state persisted in `epic-riders-2026-card-sort`). Sort button active background follows the current route color via `.card-list-box[data-route="..."] .sort-btn.active` selectors.
+- Default selected route in generated HTML: `personal`. Route toggle order: `personal / traverse / loop`. `loop` card list hides the closing duplicate row so the count reads 220, not 221.
 - LocalStorage keys (live builder UI, served from `127.0.0.1:8804`):
   - `erc-2026-owned` — owned card set
   - `erc-2026-epic-local` — EPIC coords mirror (backup of server PUT)
@@ -82,8 +86,8 @@ CLI mode is kept for regression testing and debugging.
 - LocalStorage keys (generated single-file HTML, typically opened via `file://`):
   - `epic-riders-2026-owned` — owned card set
   - `epic-riders-2026-visited` — visited card set
+  - `epic-riders-2026-card-sort` — card list panel sort state `{by:'card'|'order', dir:'asc'|'desc'}`
   - The two key spaces are intentionally separate — different origins, no collision possible, but state is also not shared between builder UI and the published map.
-- Code comments are written in English; UI strings remain in Korean.
 
 ## Backend semantics
 
