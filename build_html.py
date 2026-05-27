@@ -10,13 +10,14 @@ Palette A:
   personal  #2980b9 (blue)
   owned     #95a5a6 (neutral grey)
   visited   #27ae60 (green)
-  start     #f1c40f (yellow)        + ⭐
-  end       #2c3e50 (dark)          + 🏁
+  start     #f1c40f (yellow)        — marker bg + card list row left border
+  end       #2c3e50 (dark)          — marker bg + card list row left border
   violation #e91e63 (pink)
 
 Emoji A (UI labels):
   🛣️ road distance  ⏱️ duration  🃏 owned  📍 visited  🔄 reset
-  🔁 loop  ↔️ traverse  👤 personal  ⭐ start  🏁 end
+  🔁 loop  ↔️ traverse  👤 personal  📋 card list
+  (start/end use color cues only — emoji removed from generated HTML)
 """
 from __future__ import annotations
 import argparse, json, sys
@@ -92,6 +93,52 @@ HTML = r'''<!DOCTYPE html>
            padding:1px 6px;font-size:10px;font-weight:600;color:#333;
            white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.25);
            pointer-events:none;font-variant-numeric:tabular-nums}
+ .card-list-box{position:absolute;right:14px;background:#fff;border-radius:10px;
+                box-shadow:0 6px 20px rgba(0,0,0,.18);z-index:1000;
+                width:300px;display:flex;flex-direction:column;overflow:hidden;
+                max-height:50vh}
+ .card-list-box.collapsed{max-height:none}
+ .card-list-box.collapsed .card-list-body{display:none}
+ .card-list-header{padding:10px 14px;font-size:14px;font-weight:600;color:#222;
+                   cursor:pointer;user-select:none;background:#fafafa;
+                   border-bottom:1px solid #eee;
+                   display:flex;justify-content:space-between;align-items:center;gap:8px}
+ .card-list-box.collapsed .card-list-header{border-bottom:0}
+ .card-list-header .caret{font-size:11px;color:#666}
+ .card-list-controls{display:flex;align-items:stretch;gap:8px;padding:6px 14px;
+                     background:#fafafa;border-bottom:1px solid #eee;font-size:12px}
+ .card-list-controls .sort-group{display:inline-flex;border:1px solid #ddd;
+                                 border-radius:6px;overflow:hidden}
+ .card-list-controls .sort-group.fill{flex:1}
+ .card-list-controls .sort-group.fill .sort-btn{flex:1;text-align:center}
+ .card-list-controls .sort-btn{background:#fff;border:0;color:#555;
+                               padding:4px 10px;font-size:12px;font-weight:600;
+                               cursor:pointer;border-right:1px solid #ddd}
+ .card-list-controls .sort-group .sort-btn:last-child{border-right:0}
+ .card-list-controls .sort-btn:hover{background:#f0f0f0}
+ .card-list-controls .sort-btn.active{color:#fff}
+ .card-list-box[data-route="personal"] .sort-btn.active{background:#2980b9}
+ .card-list-box[data-route="traverse"] .sort-btn.active{background:#8e44ad}
+ .card-list-box[data-route="loop"]     .sort-btn.active{background:#e67e22}
+ .card-list-box.collapsed .card-list-controls{display:none}
+ .card-list-body{overflow-y:auto;flex:1}
+ .card-list-row{display:flex;align-items:center;gap:8px;padding:6px 14px;
+                font-size:13px;line-height:1.4;cursor:pointer;
+                border-bottom:1px solid #f3f3f3;border-left:4px solid transparent}
+ .card-list-row:hover{background:#f0f8ff}
+ .card-list-row.owned{background:#ecf0f1}
+ .card-list-row.owned:hover{background:#dde4e6}
+ .card-list-row.start{border-left-color:#f1c40f}
+ .card-list-row.end{border-left-color:#2c3e50}
+ .card-list-row .num{font-variant-numeric:tabular-nums;color:#888;
+                     min-width:34px;text-align:right}
+ .card-list-row .card{font-weight:600;color:#222;min-width:64px;
+                      font-variant-numeric:tabular-nums}
+ .card-list-row .name{flex:1;color:#444;overflow:hidden;
+                      text-overflow:ellipsis;white-space:nowrap}
+ @media (max-width: 600px){
+   .card-list-box{width:240px}
+ }
 </style>
 </head>
 <body>
@@ -104,9 +151,26 @@ HTML = r'''<!DOCTYPE html>
   <div class="row"><span class="lbl">📍 방문</span><span class="val"><span id="visitedCount">0</span> / __TOTAL_CARDS__ <button class="reset" onclick="resetVisited()">🔄 초기화</button></span></div>
 </div>
 <div class="route-toggle" id="route-toggle">
-  <button data-route="loop" class="active">🔁 loop</button>
+  <button data-route="personal" class="active">👤 personal</button>
   <button data-route="traverse">↔️ traverse</button>
-  <button data-route="personal">👤 personal</button>
+  <button data-route="loop">🔁 loop</button>
+</div>
+<div class="card-list-box" id="card-list-box" data-route="personal">
+  <div class="card-list-header" id="card-list-header">
+    <span>📋 카드 목록 <span id="cardListLabel"></span> (<span id="cardListCount">0</span>)</span>
+    <span class="caret" id="cardListCaret">▼</span>
+  </div>
+  <div class="card-list-controls" id="card-list-controls">
+    <div class="sort-group fill">
+      <button class="sort-btn" data-sort-by="card">번호</button>
+      <button class="sort-btn active" data-sort-by="order">순서</button>
+    </div>
+    <div class="sort-group">
+      <button class="sort-btn active" data-sort-dir="asc">↓</button>
+      <button class="sort-btn" data-sort-dir="desc">↑</button>
+    </div>
+  </div>
+  <div class="card-list-body" id="card-list-body"></div>
 </div>
 <script>
 const SPOTS = __SPOTS__;
@@ -116,8 +180,9 @@ const OWNED_DEFAULT = __OWNED_DEFAULT__;
 const ROUTE_COLOR = {loop:'#e67e22', traverse:'#8e44ad', personal:'#2980b9'};
 const STORAGE_KEY_VISITED = 'epic-riders-2026-visited';
 const STORAGE_KEY_OWNED   = 'epic-riders-2026-owned';
+const STORAGE_KEY_SORT    = 'epic-riders-2026-card-sort';
 
-let currentRoute = Object.keys(ROUTES)[0] || 'loop';
+let currentRoute = ROUTES['personal'] ? 'personal' : (Object.keys(ROUTES)[0] || 'personal');
 const map = L.map('map', {zoomControl: true}).setView([37.8, 128.3], 8);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '© OpenStreetMap'}).addTo(map);
 
@@ -134,6 +199,28 @@ const ownedStored = localStorage.getItem(STORAGE_KEY_OWNED);
 const owned = new Set(ownedStored ? JSON.parse(ownedStored) : OWNED_DEFAULT);
 function saveVisited(){ localStorage.setItem(STORAGE_KEY_VISITED, JSON.stringify([...visited])); }
 function saveOwned(){ localStorage.setItem(STORAGE_KEY_OWNED, JSON.stringify([...owned])); }
+
+// Card list sort: 기본 'order' / 'asc' (route 방문 순서, 처음→끝)
+let sortBy = 'order';   // 'card' | 'order'
+let sortDir = 'asc';    // 'asc'  | 'desc'
+try {
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY_SORT) || '{}');
+  if (saved.by === 'card' || saved.by === 'order') sortBy = saved.by;
+  if (saved.dir === 'asc' || saved.dir === 'desc') sortDir = saved.dir;
+} catch(e){}
+function saveSort(){
+  // Safari private mode / quota-exceeded throws — swallow so the click handler
+  // continues to updateSortUI() and buildCardList() instead of silently failing.
+  try { localStorage.setItem(STORAGE_KEY_SORT, JSON.stringify({by: sortBy, dir: sortDir})); }
+  catch(e){}
+}
+function updateSortUI(){
+  document.querySelectorAll('#card-list-controls .sort-btn').forEach(b => {
+    const active = (b.dataset.sortBy && b.dataset.sortBy === sortBy)
+                || (b.dataset.sortDir && b.dataset.sortDir === sortDir);
+    b.classList.toggle('active', !!active);
+  });
+}
 
 function decodePolyline(str){
   let index=0,lat=0,lng=0,coords=[];
@@ -222,8 +309,7 @@ function makeIcon(idx, visitNum){
   else if (isOwned) cls += ' owned';
   if (isStart) cls += ' start';
   else if (isEnd) cls += ' end';
-  const prefix = isStart ? '⭐ ' : isEnd ? '🏁 ' : '';
-  const label = prefix + visitNum + ' ' + cardLabel(card);
+  const label = visitNum + ' ' + cardLabel(card);
   return L.divIcon({className:'', html: el('div', {class: cls}, label), iconSize:null});
 }
 
@@ -288,6 +374,63 @@ function refreshMarker(idx){
 function refreshAllMarkers(){
   SPOTS.forEach((_, idx) => refreshMarker(idx));
   updateProgress();
+  buildCardList();
+}
+
+function buildCardList(){
+  const r = ROUTES[currentRoute];
+  const labelEl = document.getElementById('cardListLabel');
+  const countEl = document.getElementById('cardListCount');
+  const body = document.getElementById('card-list-body');
+  if (!r || !r.order || !r.order.length){
+    labelEl.textContent = '(' + currentRoute + ')';
+    countEl.textContent = '0';
+    body.replaceChildren();
+    return;
+  }
+  labelEl.textContent = '(' + currentRoute + ')';
+  const lastPos = r.order.length - 1;
+  // route 키를 함께 검사 — traverse/personal이 우연히 같은 카드에서 시작/종료해도
+  // 마지막 행을 닫힘 중복으로 오인해 누락하지 않도록 한다.
+  const isLoop = currentRoute === 'loop'
+              && r.order.length >= 2
+              && r.order[0] === r.order[lastPos];
+  // loop: 닫힘 행(마지막 = 시작과 동일 카드)을 카드 목록에서는 숨겨 220으로 표시.
+  const renderCount = isLoop ? r.order.length - 1 : r.order.length;
+  countEl.textContent = String(renderCount);
+  // 표시할 카드 — 원래 방문 위치(pos)를 보존하면서 정렬.
+  const rows = [];
+  for (let pos = 0; pos < renderCount; pos++){
+    const idx = r.order[pos];
+    const s = SPOTS[idx];
+    if (!s) continue;
+    rows.push({idx, pos, card: s.card, name: s.name || ''});
+  }
+  const dir = sortDir === 'desc' ? -1 : 1;
+  if (sortBy === 'card'){
+    // 동일 카드 번호의 visit-order tie를 desc에서도 보존하려고 reverse 대신
+    // comparator에 dir와 tie-breaker를 함께 넣는다.
+    rows.sort((a, b) => dir * (a.card - b.card) || (a.pos - b.pos));
+  } else if (sortDir === 'desc'){
+    // 'order' asc는 이미 방문 순서이므로 정렬 불필요. desc일 때만 뒤집는다.
+    rows.reverse();
+  }
+  const frag = document.createDocumentFragment();
+  rows.forEach(({idx, pos, card, name}) => {
+    const isStart = pos === 0;
+    const isEnd = !isLoop && pos === lastPos && pos !== 0;
+    let cls = 'card-list-row';
+    if (owned.has(card)) cls += ' owned';
+    if (isStart) cls += ' start';
+    else if (isEnd) cls += ' end';
+    const row = el('div', {class: cls, 'data-idx': String(idx)}, [
+      el('span', {class: 'num'}, String(pos + 1) + '.'),
+      el('span', {class: 'card'}, cardLabel(card)),
+      el('span', {class: 'name'}, name),
+    ]);
+    frag.appendChild(row);
+  });
+  body.replaceChildren(frag);
 }
 
 function updateProgress(){
@@ -300,6 +443,7 @@ window.toggleOwned = function(card){
   saveOwned();
   SPOTS.forEach((s, i) => { if (s.card === card) refreshMarker(i); });
   updateProgress();
+  buildCardList();
 };
 window.toggleVisited = function(card){
   if (visited.has(card)) visited.delete(card); else visited.add(card);
@@ -381,6 +525,8 @@ function applyRoute(key){
   document.getElementById('durVal').textContent = fmtTime(r.duration_s || (r.distance_m / (50 * 1000 / 3600)));
 
   document.querySelectorAll('#route-toggle button[data-route]').forEach(b => b.classList.toggle('active', b.dataset.route === key));
+  document.getElementById('card-list-box').setAttribute('data-route', key);
+  buildCardList();
 
   const orderSet = new Set(r.order);
   SPOTS.forEach((s, idx) => {
@@ -429,14 +575,56 @@ document.getElementById('route-toggle').addEventListener('click', e => {
   if (b) applyRoute(b.dataset.route);
 });
 
-function repositionToggle(){
+function repositionPanels(){
   const stats = document.getElementById('stats');
   const toggle = document.getElementById('route-toggle');
+  const cardList = document.getElementById('card-list-box');
   toggle.style.top = (stats.offsetTop + stats.offsetHeight + 8) + 'px';
+  cardList.style.top = (toggle.offsetTop + toggle.offsetHeight + 8) + 'px';
 }
-new ResizeObserver(repositionToggle).observe(document.getElementById('stats'));
-window.addEventListener('load', repositionToggle);
+new ResizeObserver(repositionPanels).observe(document.getElementById('stats'));
+new ResizeObserver(repositionPanels).observe(document.getElementById('route-toggle'));
+new ResizeObserver(repositionPanels).observe(document.getElementById('card-list-box'));
+window.addEventListener('load', repositionPanels);
 map.on('zoomend', syncChipVisibility);
+
+// Mobile: collapse card list by default to avoid covering the map.
+if (window.matchMedia && window.matchMedia('(max-width: 600px)').matches){
+  document.getElementById('card-list-box').classList.add('collapsed');
+  document.getElementById('cardListCaret').textContent = '▶';
+}
+
+document.getElementById('card-list-header').addEventListener('click', () => {
+  const box = document.getElementById('card-list-box');
+  box.classList.toggle('collapsed');
+  document.getElementById('cardListCaret').textContent =
+    box.classList.contains('collapsed') ? '▶' : '▼';
+});
+
+document.getElementById('card-list-body').addEventListener('click', (e) => {
+  const row = e.target.closest('.card-list-row');
+  if (!row) return;
+  const idx = parseInt(row.dataset.idx, 10);
+  const s = SPOTS[idx];
+  if (!s) return;
+  const m = markerByIdx.get(idx);
+  if (m){
+    map.panTo([s.lat, s.lng]);
+    m.openPopup();
+  }
+});
+
+document.getElementById('card-list-controls').addEventListener('click', (e) => {
+  const b = e.target.closest('.sort-btn');
+  if (!b) return;
+  if (b.dataset.sortBy) sortBy = b.dataset.sortBy;
+  else if (b.dataset.sortDir) sortDir = b.dataset.sortDir;
+  saveSort();
+  updateSortUI();
+  buildCardList();
+});
+
+updateSortUI();
 
 window.addEventListener('storage', e => {
   if (e.key === STORAGE_KEY_VISITED) {
