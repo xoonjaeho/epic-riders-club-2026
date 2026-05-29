@@ -25,5 +25,6 @@ venv/
 # Octo review runtime
 .claude-octopus/
 
-# Internal-only docs (kept local)
-docs/
+# Local-only docs - synced scaffolds (.claude/rules/) and internal docs, never committed (see docs/SETUP.md)
+/.claude/
+/docs/
