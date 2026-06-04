@@ -126,8 +126,8 @@ HTML = r'''<!DOCTYPE html>
                 font-size:13px;line-height:1.4;cursor:pointer;
                 border-bottom:1px solid #f3f3f3;border-left:4px solid transparent}
  .card-list-row:hover{background:#f0f8ff}
- .card-list-row.owned{background:#ecf0f1}
- .card-list-row.owned:hover{background:#dde4e6}
+ .card-list-box:not([data-route="personal"]) .card-list-row.owned{background:#85c1e9}
+ .card-list-box:not([data-route="personal"]) .card-list-row.owned:hover{background:#5dade2}
  .card-list-row.start{border-left-color:#f1c40f}
  .card-list-row.end{border-left-color:#2c3e50}
  .card-list-row .num{font-variant-numeric:tabular-nums;color:#888;
