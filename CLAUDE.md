@@ -61,7 +61,8 @@ CLI mode is kept for regression testing and debugging.
 | loop | `#e67e22` |
 | traverse | `#8e44ad` |
 | personal | `#2980b9` |
-| owned | `#95a5a6` |
+| owned (marker) | `#95a5a6` |
+| owned (list row, traverse/loop) | `#85c1e9` · hover `#5dade2` |
 | visited | `#27ae60` |
 | start | `#f1c40f` + ⭐ |
 | end | `#2c3e50` + 🏁 |
