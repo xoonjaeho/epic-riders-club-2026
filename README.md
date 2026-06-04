@@ -41,7 +41,7 @@ BMW Motorrad Korea EPIC RIDERS CLUB 2026 강원도 220 + EPIC 17 = 237장 카드
 
 ### 생성된 single-file HTML (`file://`)
 - 라우트 전환 (기본 `personal`, 토글 순서 `personal / traverse / loop`) · 보유/방문 토글 (LocalStorage 영구화)
-- 📋 카드 목록 패널 — 현재 라우트의 카드를 [번호 ↔ 순서] × [↑ ↓] 로 정렬해 표시, 행 클릭 시 해당 마커로 이동 + 팝업 (정렬 상태 LocalStorage 저장, 모바일 ≤600px 기본 접힘)
+- 📋 카드 목록 패널 — 현재 라우트의 카드를 [번호 ↔ 순서] × [↑ ↓] 로 정렬해 표시, 행 클릭 시 해당 마커로 이동 + 팝업. traverse·loop 목록은 보유 카드 행을 파랑(`#85c1e9`)으로 강조 (정렬 상태 LocalStorage 저장, 모바일 ≤600px 기본 접힘)
 - 마커 클릭 시 카드 정보 + 인접 leg 소요시간 + 네이버지도 · 카카오맵 길찾기 (iOS · Android 앱 직접 연결)
 
 ## 파이프라인
