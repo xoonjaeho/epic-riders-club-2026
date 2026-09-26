@@ -30,7 +30,7 @@ Browse to http://127.0.0.1:8804.
 All three backend modules expose both a **function API** and a **CLI**:
 - `build_motorcycle.build_routes(params: BuildParams, progress_cb)`
 - `verify_motorcycle.verify(routes, params: VerifyParams, progress_cb)`
-- `build_html.build_html(spots, routes, verify_report, owned, out_path, total_cards)`
+- `build_html.build_html(spots, routes, verify_report, owned_default, out_path, total_cards)`
 
 CLI mode is kept for regression testing and debugging.
 
@@ -103,10 +103,10 @@ CLI mode is kept for regression testing and debugging.
 python -m pytest tests/ -v
 ```
 
-`tests/test_phase{1..4}.py` cover the security/correctness regressions from the multi-LLM code review. Pytest discovers them automatically; no `pytest.ini` needed. `tests/` may grow over time but each test should remain narrow and assert observable behavior.
+`tests/test_phase{1..5}.py` cover the security/correctness regressions. Pytest discovers them automatically; no `pytest.ini` needed. `tests/` may grow over time but each test should remain narrow and assert observable behavior.
 
 ## Caching
 
 See top-level README.md for sizes. Cache validity keys:
-- Graph: `mc_graph.json` existence = valid (permanent unless explicitly rebuilt).
+- Graph: `mc_graph.json` is valid while it parses and its `schema_version` matches `GRAPH_SCHEMA_VERSION`; otherwise, or on an explicit rebuild, it is rebuilt.
 - Matrix: valid when `matrix_motorcycle.json`'s `spots_key` matches the current spots (EPIC coord changes invalidate automatically).
