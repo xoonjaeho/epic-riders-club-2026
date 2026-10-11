@@ -88,7 +88,7 @@ epic-riders-club-2026/
 ├── out/                     # 생성된 HTML (gitignore)
 ├── run.bat
 ├── requirements.txt
-├── CLAUDE.md
+├── AGENTS.md
 └── README.md
 ```
 
